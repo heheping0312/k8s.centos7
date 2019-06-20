@@ -1,0 +1,100 @@
+私有仓库的使用:
+1.安装docker环境，启服务 
+ yum -y install docker && systemctl  restart  docker
+
+2.下载私有仓库的镜像，启动容器
+docker pull  registry:2.2
+docker run -d --name=my_registry -p 5000:5000 -v /opt/data/registry:/tmp/registry docker.io/registry:2.2
+
+3.测试，下载镜像上传到私有仓库
+docker  pull  centos
+docker  pull  tomcat
+
+docker tag tomcat 172.16.0.6:5000/tomcat
+docker tag centos 172.16.0.6:5000/centos
+
+docker push 172.16.0.6:5000/tomcat（报错）
+
+4.修改配置配置文件
+   vim /etc/sysconfig/docker
+   OPTIONS='--selinux-enabled --log-driver=journald --insecure-registry=172.16.0.6:5000'
+5.启服务
+ service docker restart && docker start my_registry
+
+6.再次提交到私有仓库
+  docker push 172.16.0.6:5000/tomcat
+
+7.查看私有仓库的镜像
+ curl -XGET http://172.16.0.6:5000/v2/_catalog
+
+8.删除所有的镜像，从私有仓库下载，即ok
+   docker rmi tomcat
+   docker rmi 172.16.0.6:5000/tomcat
+
+   docker  pull 172.16.0.6:5000/tomcat
+
+
+#######################################################################私有仓库到此结束############################################
+
+安装k8s集群的主节点master
+
+1.安装并配置Kubernetes Master
+    yum -y install etcd kubernetes-master
+2.编辑并修改/etc/etcd/etcd.conf文件
+    6 ETCD_LISTEN_CLIENT_URLS="http://0.0.0.0:2379"
+3.编辑/etc/kubernetes/apiserver文件
+    8 KUBE_API_ADDRESS="--insecure-bind-address=0.0.0.0"
+4.启动etcd、kube-apiserver、kube-controller-manager、kube-scheduler等服务，并设置开机启动
+   for SERVICES in etcd kube-apiserver kube-controller-manager kube-scheduler; do systemctl restart $SERVICES;systemctl enable $SERVICES;systemctl status $SERVICES ; done
+
+5.定义网络
+  etcdctl mk /atomic.io/network/config '{"Network":"172.17.0.0/16"}'
+
+
+
+6.安装kubernetes
+    yum -y install flannel kubernetes-node
+
+7.为flannel网络指定etcd服务，修改/etc/sysconfig/flanneld文件
+    4 FLANNEL_ETCD_ENDPOINTS="http://172.16.0.6:2379" #master的主节点ip
+
+8.修改/etc/kubernetes/config文件
+     22 KUBE_MASTER="--master=http://172.16.0.6:8080"
+
+
+9.修改对应minion机器上的配置文件/etc/kubernetes/kubelet
+
+
+ --- 5 KUBELET_ADDRESS="--address=0.0.0.0"
+ --- 14 KUBELET_API_SERVER="--api-servers=http://172.16.0.6:8080"
+
+10.启网络
+   systemctl  restart flanneld
+
+
+
+node节点的部署:
+1.部署dcoker环境
+    yum -y install docker &&  yum -y install flannel kubernetes-node
+
+2.修改配置文件
+  --- /etc/sysconfig/flanneld  /etc/kubernetes/config  #从主节点上拷贝不需修改
+
+  --- /etc/kubernetes/kubelet
+       11 KUBELET_HOSTNAME="--hostname-override=web1"
+3.启服务
+
+for SERVICES in kube-proxy kubelet docker flanneld;do systemctl restart $SERVICES;systemctl enable $SERVICES;systemctl status $SERVICES; done
+
+########################################################################################################################################
+
+
+在master上查询node节点
+  [root@nn01 ~]# kubectl  get nodes
+NAME      STATUS    AGE
+web1      Ready     2m
+
+
+
+
+#########################################################ok  GAMEOVER ##################################################################
